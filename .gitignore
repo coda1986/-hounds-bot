@@ -1,0 +1,10 @@
+*.csv
+*.session
+*.env
+.env*
+__pycache__/
+*.pyc
+*_backup*
+*_fresh*
+credentials*.json
+twikit_cookies.json
