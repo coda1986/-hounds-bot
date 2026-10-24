@@ -267,9 +267,12 @@ async def outcome_loop():
                 _save_pending()
 
             if all(snaps.get(str(m)) is not None for m in SNAP_MINS):
-                def _x(m):
-                    mc = snaps.get(str(m), 0) or 0
-                    return round(mc / mc_in, 4) if mc_in > 0 else 0.0
+                def _make_x(snaps_ref, mc_ref):
+                    def _x(m):
+                        mc = snaps_ref.get(str(m), 0) or 0
+                        return round(mc / mc_ref, 4) if mc_ref > 0 else 0.0
+                    return _x
+                _x = _make_x(snaps, mc_in)
 
                 row = {k: v for k, v in rec.items() if k != 'snaps'}
                 row.update({'x_5m': _x(5), 'x_15m': _x(15), 'x_30m': _x(30), 'x_1h': _x(60)})
@@ -343,7 +346,8 @@ async def poll_loop(client, bot_entity):
                     break
                 new_msgs.append(msg)
 
-            log.info('[poll] tick  last_id=%d  novas=%d', last_id, len(new_msgs))
+            if new_msgs:
+                log.info('[poll] tick  last_id=%d  novas=%d', last_id, len(new_msgs))
 
             for msg in reversed(new_msgs):
                 last_id = msg.id
