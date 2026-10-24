@@ -22,7 +22,8 @@ BOT_USERNAME = 'kotte_memescan_bot'
 SNAP_MINS    = [5, 15, 30, 60]
 OUT_CSV      = os.path.join(os.path.dirname(__file__), 'kotte_outcomes.csv')
 PENDING_JSON = os.path.join(os.path.dirname(__file__), 'kotte_pending.json')
-CHECK_S      = 30
+CHECK_S      = 30   # outcome snaps
+POLL_S       = 5    # kotte message poll
 
 COLS = [
     # identidade do sinal
@@ -290,43 +291,66 @@ async def outcome_loop():
             _save_pending()
 
 
-# ── Handler ───────────────────────────────────────────────────────────────────
-def make_handler(client, bot_id):
-    @client.on(events.NewMessage(from_users=bot_id))
-    async def on_message(event):
-        text = event.message.message or ''
-        sig  = parse_alert(text)
-        if not sig:
-            return
+# ── Processar mensagem ────────────────────────────────────────────────────────
+async def process_message(text, msg_ts):
+    sig = parse_alert(text)
+    if not sig:
+        return
 
-        ca = sig['ca']
-        if ca in pending:
-            return
+    ca = sig['ca']
+    if ca in pending:
+        return
 
-        sig['call_ts'] = int(event.message.date.replace(tzinfo=timezone.utc).timestamp())
+    sig['call_ts'] = msg_ts
 
-        loop     = asyncio.get_event_loop()
-        enriched = await loop.run_in_executor(None, enrich_entry, ca)
-        sig.update(enriched)
+    loop     = asyncio.get_event_loop()
+    enriched = await loop.run_in_executor(None, enrich_entry, ca)
+    sig.update(enriched)
 
-        pending[ca] = sig
-        _save_pending()
+    pending[ca] = sig
+    _save_pending()
 
-        # scars check
-        fp = scars.kotte_fingerprint(sig)
-        ov, match = scars.kotte_check(fp, _kotte_winners)
-        if match:
-            log.info('[SCARS MATCH] %s  overlap=%d/8  like=%s (%.2fx)',
-                     sig['symbol'], ov, match['symbol'], match['x_1h'])
+    fp = scars.kotte_fingerprint(sig)
+    ov, match = scars.kotte_check(fp, _kotte_winners)
+    if match:
+        log.info('[SCARS MATCH] %s  overlap=%d/8  like=%s (%.2fx)',
+                 sig['symbol'], ov, match['symbol'], match['x_1h'])
 
-        log.info('[%s T%s] %s  mc=$%.0f  age=%smin  wallet=%s  w7d=%s/x2=%s  '
-                 'smart=%d  rug=%.2f  net_buy=%.0f',
-                 sig['alert_type'], sig['tier'], sig['symbol'],
-                 sig['mc_entry'], sig['age_min'], sig['wallet_id'],
-                 sig['w7d_alerts'], sig['w7d_x2plus'],
-                 sig.get('smart_wallets', 0),
-                 sig.get('rug_ratio', 0),
-                 sig.get('net_buy_1m', 0))
+    log.info('[%s T%s] %s  mc=$%.0f  age=%smin  wallet=%s  w7d=%s/x2=%s  '
+             'smart=%d  rug=%.2f  net_buy=%.0f',
+             sig['alert_type'], sig['tier'], sig['symbol'],
+             sig['mc_entry'], sig['age_min'], sig['wallet_id'],
+             sig['w7d_alerts'], sig['w7d_x2plus'],
+             sig.get('smart_wallets', 0),
+             sig.get('rug_ratio', 0),
+             sig.get('net_buy_1m', 0))
+
+
+# ── Poll loop (mais confiável que events para chat privado com bot) ────────────
+async def poll_loop(client, bot_entity):
+    last_id = 0
+    # inicializar com o ID mais recente sem processar histórico
+    async for msg in client.iter_messages(bot_entity, limit=1):
+        last_id = msg.id
+    log.info('[poll] iniciando a partir de msg_id=%d', last_id)
+
+    while True:
+        await asyncio.sleep(POLL_S)
+        try:
+            new_msgs = []
+            async for msg in client.iter_messages(bot_entity, limit=20):
+                if msg.id <= last_id:
+                    break
+                new_msgs.append(msg)
+
+            log.info('[poll] tick  last_id=%d  novas=%d', last_id, len(new_msgs))
+
+            for msg in reversed(new_msgs):
+                last_id = msg.id
+                ts = int(msg.date.replace(tzinfo=timezone.utc).timestamp())
+                await process_message(msg.text or '', ts)
+        except Exception as e:
+            log.warning('[poll] erro: %s', e)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -350,10 +374,20 @@ async def main():
     log.info('[init] bot_id=%s  SNAP_MINS=%s  OUT_CSV=%s',
              bot_entity.id, SNAP_MINS, OUT_CSV)
 
-    make_handler(client, bot_entity.id)
-    asyncio.create_task(outcome_loop())
+    # handler event-driven (instantâneo quando a sessão recebe push)
+    @client.on(events.NewMessage(chats=bot_entity.id))
+    async def on_message(event):
+        ts = int(event.message.date.replace(tzinfo=timezone.utc).timestamp())
+        log.info('[event] mensagem recebida id=%d', event.message.id)
+        await process_message(event.message.text or '', ts)
 
-    log.info('[init] escutando @%s...', BOT_USERNAME)
+    # forçar sync de updates para ativar o push
+    await client.get_dialogs()
+
+    asyncio.create_task(outcome_loop())
+    asyncio.create_task(poll_loop(client, bot_entity))
+
+    log.info('[init] escutando @%s (event+poll %ds)...', BOT_USERNAME, POLL_S)
     await client.run_until_disconnected()
 
 
