@@ -8,7 +8,7 @@ Pipeline:
   3. Dev score via portfolio_created_tokens (cache 1h por creator)
   4. Priority score 0-100 (7 componentes: mom5m/buy_pressure/mom1h/turnover/consensus/dev/safety)
   5. Entra se priority_score >= PRIORITY_MIN
-  6. Exit: trailing stop 20% desde o high OU timeout 60min
+  6. Exit: TP fixo 1.30x OU timeout 60min
 """
 
 import os, sys, time, csv, json, logging, math
@@ -29,6 +29,7 @@ POLL_TRENDING_S  = 30       # poll market_trending a cada 30s
 POLL_PENDING_S   = 10       # check pending (price) a cada 10s
 LIQ_MIN          = 15_000
 MAX_HOLD_MIN     = 60       # hold maximo 60min (timeout)
+TP_X             = 1.30     # exit ao atingir 1.3x (TP fixo)
 PRIORITY_MIN     = 60       # score >= 60 = "buyable" (aibot band)
 LIVE             = False
 
@@ -85,7 +86,7 @@ COLS = [
     'launchpad_platform', 'token_age_min',
     # scoring aibot
     'dev_score', 'priority_score',
-    # outcomes — trailing stop 20% / timeout 60min
+    # outcomes — TP 1.30x / timeout 60min
     'p5m', 'p10m', 'p15m', 'p30m', 'p45m', 'p60m',
     'be_max_x', 'hold_min', 'exit_reason', 'ev_strat',
 ]
@@ -329,9 +330,14 @@ def process_trending(tokens: list) -> int:
                      dev_s)
             continue
 
+        # ── Gate momentum 1h ────────────────────────────────────────────
+        chg1h = float(tok.get('price_change_percent1h', 0) or 0) / 100
+        if chg1h < 0.10:
+            log.info('  SKIP %-12s chg_1h=%.1f%% < 10%%', symbol, chg1h * 100)
+            continue
+
         # ── Passou todos os gates ────────────────────────────────────────
         chg5  = float(tok.get('price_change_percent5m', 0) or 0) / 100
-        chg1h = float(tok.get('price_change_percent1h', 0) or 0) / 100
         chg24 = float(tok.get('price_change_percent',   0) or 0) / 100
         buys  = int(tok.get('buys',  0) or 0)
         sells = int(tok.get('sells', 0) or 0)
@@ -448,6 +454,13 @@ def update_pending():
             if mc_now > rec['mc_high']:
                 rec['mc_high'] = mc_now
 
+            # TP fixo: sai ao atingir 1.3x
+            if mc_x >= TP_X and 'tp_hit_x' not in rec:
+                rec['tp_hit_x'] = round(mc_x, 4)
+                if ca not in to_close:
+                    to_close.append(ca)
+                continue
+
         # Timeout maximo
         if elapsed >= MAX_HOLD_MIN:
             to_close.append(ca)
@@ -473,12 +486,16 @@ def _close(ca: str):
         return min(snaps, key=lambda s: abs(s[0] - minute))[1]
 
     hold_min    = round((time.time() - rec['entry_ts']) / 60.0, 1)
-    exit_reason = 'timeout'
+    tp_hit_x    = rec.get('tp_hit_x')
+    exit_reason = 'tp' if tp_hit_x else 'timeout'
     prices      = {f'p{m}m': round(snap_at(m), 4) for m in [5, 10, 15, 30, 45, 60]}
     be_max_x    = max((s[1] for s in snaps), default=1.0)
 
-    real_mc  = _real_mc(ca)
-    ev_strat = round(real_mc / rec['mc_entry'], 4) if real_mc > 0 and rec['mc_entry'] > 0 else 0.0
+    if tp_hit_x:
+        ev_strat = float(tp_hit_x)
+    else:
+        real_mc  = _real_mc(ca)
+        ev_strat = round(real_mc / rec['mc_entry'], 4) if real_mc > 0 and rec['mc_entry'] > 0 else 0.0
 
     row = {**rec, **prices,
            'be_max_x':    round(be_max_x, 4),
@@ -521,10 +538,10 @@ def main():
     elif LIVE:
         live_status = 'LIVE=True  *** gmgn_terminal AUSENTE ***'
 
-    log.info('aibot_scanner start — liq>=$%d  gates=[rug<=%.1f bund<=%.1f top10<=%.1f smart>=%d]  priority>=%d  max_hold=%dmin  %s',
+    log.info('aibot_scanner start — liq>=$%d  gates=[rug<=%.1f bund<=%.1f top10<=%.1f smart>=%d chg1h>=10%%]  priority>=%d  tp=%.2fx  max_hold=%dmin  %s',
              LIQ_MIN,
              MAX_RUG_RATIO, MAX_BUNDLER_RATE, MAX_TOP10_RATE, MIN_SMART_DEGEN,
-             PRIORITY_MIN, MAX_HOLD_MIN, live_status)
+             PRIORITY_MIN, TP_X, MAX_HOLD_MIN, live_status)
 
     last_trending = 0.0
     poll_n        = 0
