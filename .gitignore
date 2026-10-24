@@ -1,10 +1,94 @@
+# dados e estado
 *.csv
+*.jsonl
+*.json
+
+# credenciais e sessões
 *.session
 *.env
 .env*
+credentials*.json
+twikit_cookies*.json
+.git-credentials
+x_session*.json
+
+# python
 __pycache__/
 *.pyc
+*.pyo
+venv/
+sniper_venv/
+
+# backups e temporários
 *_backup*
 *_fresh*
-credentials*.json
-twikit_cookies.json
+*_bak*
+*_vm_backup*
+*_pre_refactor*
+*_latest*
+tmp_*
+patch_*
+fix_*
+check_*
+probe_*
+study_*
+explore_*
+analyze_*
+inspect_*
+audit_*
+optimize_*
+
+# windows home
+AppData/
+Desktop/
+Documents/
+Downloads/
+Favorites/
+Music/
+Videos/
+OneDrive/
+Contacts/
+Links/
+Searches/
+.claude/
+.config/
+.local/
+.matplotlib/
+.vscode/
+.ssh/
+backups/
+crypto_bot/
+crypto_bot2_config/
+crypto_bot_vm_current/
+gainers_monitor/
+largecap_bot/
+oracle_moore/
+projeto2_momentum/
+projeto3_setups_especialistas/
+research_tmp/
+solana_bot/
+trade_observer/
+tradingview-mcp/
+vm_review_20260609/
+3D Objects/
+Saved Games/
+
+# windows system
+ntuser*
+NTUSER*
+*.blf
+*.regtrans-ms
+ntuser.ini
+
+# outros
+*.log
+*.b64
+*.png
+*.msi
+*.pine
+dashboard_b64.txt
+monitor_b64.txt
+cd
+mkdir
+int
+python

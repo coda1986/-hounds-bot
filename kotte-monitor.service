@@ -1,0 +1,19 @@
+[Unit]
+Description=Kotte Monitor — kotte_memescan_bot outcome tracker
+After=network.target
+
+[Service]
+Type=simple
+User=abib1
+WorkingDirectory=/home/abib1/signal_bot
+Environment=TG_API_ID=37709620
+Environment=TG_API_HASH=5a106ef19094f2442e150e60c88f5b0b
+Environment=GMGN_API_KEY=gmgn_9ae427929f7352421cc6cc78e894334d
+ExecStart=/home/abib1/signal_bot/venv/bin/python3 /home/abib1/signal_bot/kotte_monitor.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

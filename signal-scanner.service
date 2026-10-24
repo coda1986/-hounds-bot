@@ -1,0 +1,16 @@
+[Unit]
+Description=Signal Scanner — conviction-based GMGN signal monitor
+After=network.target
+
+[Service]
+Type=simple
+User=abib1
+WorkingDirectory=/home/abib1/signal_bot
+ExecStart=/home/abib1/signal_bot/venv/bin/python3 /home/abib1/signal_bot/signal_scanner.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
